@@ -1,0 +1,80 @@
+# Import necessary modules and libraries
+from langchain.document_loaders import UnstructuredURLLoader  # For loading documents from URLs
+from langchain.text_splitter import CharacterTextSplitter  # For splitting large texts into smaller chunks
+from langchain.embeddings import OpenAIEmbeddings  # For embedding the documents for similarity search
+from langchain.vectorstores import FAISS  # Vector storage for fast similarity search
+from langchain.chains import RetrievalQA  # Question-answering based on retrieval
+from langchain import OpenAI, PromptTemplate  # OpenAI model and template for prompts
+from func_timeout import func_timeout, FunctionTimedOut  # For timing out functions if they take too long
+import faiss  # Efficient similarity search library
+import os  # For setting environment variables
+import csv  # For CSV file operations
+
+# Read the csv file containing data about authors and their quotes
+with open(r'C:\Users\User\Downloads\Telegram Desktop\authors - quotes_authors (2).csv', 'r', encoding='utf8') as file:
+    next(file)  # Skip the header row
+    reader = csv.reader(file)
+    data = list(reader)
+
+# Set the OpenAI API key from an environment variable
+os.environ["OPENAI_API_KEY"] = "API_KEY"
+
+# Define prompts for the OpenAI model to understand the task
+prompt_template3 = """
+... [Description of the first prompt]
+..."""
+
+prompt_template4 = """
+... [Description of the second prompt]
+..."""
+
+# Define the embedding method
+embedding = OpenAIEmbeddings()
+
+quotes = []  # List to store the retrieved quotes
+for row in data:
+    url = [row[4]]  # Extract URL from the current row
+
+    try:
+        # Load the data from the URL
+        loader = UnstructuredURLLoader(urls=url)
+        data = loader.load()
+
+        # Split the loaded document into smaller text chunks
+        text_splitter = CharacterTextSplitter.from_tiktoken_encoder(separator='\n', chunk_size=500, chunk_overlap=100)
+        texts = text_splitter.split_documents(data)
+
+        # Create vector representations of the chunks for fast similarity search
+        vectorStore_openai = FAISS.from_documents(texts, embedding)
+
+        # Define the model and the prompt template
+        llm = OpenAI(model_name="text-davinci-003", temperature=0)
+        PROMPT = PromptTemplate(
+            template=prompt_template3,
+            input_variables=["context"]
+        )
+
+        # Set up the retrieval question-answering chain
+        chain_type_kwargs = {"prompt": PROMPT}
+        qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=vectorStore_openai.as_retriever(),
+                                         chain_type_kwargs=chain_type_kwargs)
+
+        # Ask the model for a quote
+        query = "What is the best quote?"
+        answer = qa.run(query)
+        print(answer)
+        row.append(answer)
+    # Allow for a way to manually stop the loop and save the quotes collected so far
+    except KeyboardInterrupt:
+        with open('extra_quotes_list.csv', 'w', encoding="utf-8", newline='') as file:
+            writer = csv.writer(file)
+            writer.writerows(quotes)
+    # Handle any other exceptions and continue
+    except Exception as e:
+        print('error ', e)
+        pass
+
+# Save the final data with the quotes added to a CSV
+with open('quotes_list_super.csv', 'w', encoding="utf-8", newline='') as file:
+    writer = csv.writer(file)
+    writer.writerows(data)
